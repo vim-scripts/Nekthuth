@@ -1,0 +1,23 @@
+This is a mirror of http://www.vim.org/scripts/script.php?script_id=2357
+
+Nekthuth is simultaneously a plugin for vim and library for Comon Lisp that allows developers to interact with a running interpreter from inside their editor.
+
+Features include:
+
+    * Form evaluation
+    * Tab completion
+    * Quick macroexpansion
+    * Extension to syntax highlighting
+    * Basic Debugger
+    * On the fly hyperspec rendering inside the vim window
+    * Extensible plugin architecture
+    * Connect to a remote lisp or boot one from inside vim
+    * Find and open source location of symbols under cursor
+
+Current limitations include:
+
+    * Requires SBCL with threads
+    * Requires vim > 7.0 with +python
+    * Requires asdf
+
+See http://nekthuth.com for more information
