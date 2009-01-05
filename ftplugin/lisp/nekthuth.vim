@@ -28,6 +28,10 @@ else
   let g:nekthuth_split = "vsplit"
 endif
 
+if !exists("g:nekthuth_remote_port")
+  let g:nekthuth_remote_port = 8532
+endif
+
 if v:version < 700
   echoerr "Could not initialize nekthuth, need version > 7"
   finish
@@ -42,7 +46,7 @@ endif
 let g:nekthuth_defined = 1
 
 " This must match the version on the lisp side
-let g:nekthuth_version = "0.1"
+let g:nekthuth_version = "0.2"
 
 set updatetime=500
 autocmd BufDelete,BufUnload,BufWipeout Nekthuth.buffer python closeNekthuth()
@@ -55,6 +59,7 @@ command! -nargs=0 -count=0 NekthuthMacroExpand python macroExpand(<count>)
 command! -nargs=0 NekthuthTopSexp python sendSexp(100)
 command! -nargs=0 NekthuthClose python closeNekthuth()
 command! -nargs=0 NekthuthOpen python openNekthuth()
+command! -nargs=? NekthuthRemote python remoteNekthuth('<args>')
 command! -nargs=0 NekthuthInterrupt python sendInterrupt()
 
 function! NekthuthOmni(findstart, base)
@@ -75,7 +80,7 @@ if !exists("g:lisp_debug")
 endif
 
 python << EOF
-import threading,time,vim,os,sys,locale,re
+import threading,time,vim,os,sys,locale,re,socket
 
 buffer = None
 input = None
@@ -99,6 +104,8 @@ class Sender(threading.Thread):
         print "Lisp closed!"
         print
         output.close()
+      elif cmdChar == '\n':
+        1 + 1 # Skip, though this thoroughly demonstrates my lack of python knowledge
       elif cmdChar == 'A':
         msg = output.readline()
         if 'GO\n' == msg:
@@ -118,7 +125,7 @@ class Sender(threading.Thread):
         lock.release()
       else:
         if debugMode:
-          errorMsgs.append(cmdChar + output.readline())
+          errorMsgs.append(cmdChar + ')' + output.readline())
         else:
           output.readline()
 
@@ -206,6 +213,29 @@ def openNekthuth():
     input.write('(if (ignore-errors (funcall (symbol-function (find-symbol "EXPECTED-VERSION" \'nekthuth.system)) ' + vim.eval ("g:nekthuth_version") + ')) (progn (format t "~%") (funcall (find-symbol "START-IN-VIM" \'nekthuth))) (progn (format t "ASTOP~%") (sb-ext:quit)))\n')
     input.flush()
 
+    Sender().start()
+    vim.command ("wincmd w")
+
+def remoteNekthuth(port):
+  if port == '':
+    port = vim.eval("g:nekthuth_remote_port")
+
+  global buffer,window,input,output
+  if buffer == None:
+    print "Starting remote connection to lisp"
+    print
+    try:
+      s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+      s.connect(('localhost', locale.atoi(port)))
+    except:
+      print >> sys.stderr, "Could not connect to lisp!"
+      return
+    input = s.makefile("w")
+    output = s.makefile("r")
+    vim.command (vim.eval ("g:nekthuth_split") + " +e Nekthuth.buffer")
+    vim.command ("setlocal buftype=nofile noswapfile filetype=lisp nonumber")
+    buffer = vim.current.buffer
+    window = vim.current.window
     Sender().start()
     vim.command ("wincmd w")
 
@@ -336,9 +366,12 @@ def debugger(msgs):
   debugResponse = 0;
   debugText = msgs[0].split("\n")
   numRestarts = locale.atoi(debugText[0])
-  while (debugResponse < 1 or debugResponse > numRestarts):
-    vim.command ("redraw!")
-    debugResponse = locale.atoi(vim.eval ("inputlist(" + str(debugText[1:]).replace("\\'", "''") + ")"))
+  while ((debugResponse < 1 or debugResponse > numRestarts) and debugResponse != "error"):
+    try:
+      vim.command ("redraw!")
+      debugResponse = locale.atoi(vim.eval ("inputlist(" + str(debugText[1:]).replace("\\'", "''") + ")"))
+    except:
+      debugResponse = "error"
   lispSend('D', str(debugResponse))
 registerReceiver('D', debugger, True)
 
@@ -414,8 +447,12 @@ function! BuildHelp()
 endfunction
 
 function! OpenHelp(tagname)
-  split ~/.vim/plugin/nekthuth/HyperSpec.Help
-  exe "tag " . a:tagname
+  if ! empty(taglist(a:tagname))
+    split ~/.vim/plugin/nekthuth/HyperSpec.Help
+    exe "tag " . a:tagname
+  else
+    echoerr "Could not find help for " . a:tagname
+  endif
 endfunction
 
 python << EOF
