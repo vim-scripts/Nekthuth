@@ -46,7 +46,7 @@ endif
 let g:nekthuth_defined = 1
 
 " This must match the version on the lisp side
-let g:nekthuth_version = "0.2"
+let g:nekthuth_version = "0.3"
 
 set updatetime=500
 autocmd BufDelete,BufUnload,BufWipeout Nekthuth.buffer python closeNekthuth()
@@ -61,6 +61,7 @@ command! -nargs=0 NekthuthClose python closeNekthuth()
 command! -nargs=0 NekthuthOpen python openNekthuth()
 command! -nargs=? NekthuthRemote python remoteNekthuth('<args>')
 command! -nargs=0 NekthuthInterrupt python sendInterrupt()
+command! -nargs=0 NekthuthSourceLocation python openSourceLocation()
 
 function! NekthuthOmni(findstart, base)
   execute "python omnifunc(" . a:findstart . ", \"" . a:base . "\")"
@@ -105,15 +106,26 @@ class Sender(threading.Thread):
         print
         output.close()
       elif cmdChar == '\n':
-        1 + 1 # Skip, though this thoroughly demonstrates my lack of python knowledge
+        pass
       elif cmdChar == 'A':
         msg = output.readline()
         if 'GO\n' == msg:
           self.started = True
         elif 'STOP\n' == msg:
+          closeNekthuth()
           print >> sys.stderr, "Failed to start up nekthuth.  Either the asdf package is not installed or the incorrect version (expected " + vim.eval("g:nekthuth_version") + ")"
         elif 'THREAD\n' == msg:
+          closeNekthuth()
           print >> sys.stderr, "Failed to start up nekthuth.  SBCL not compiled with thread options."
+        elif msg.startswith('VERSION'):
+          ver = msg.replace('VERSION', '')
+          if ver.rstrip() != vim.eval ("g:nekthuth_version"):
+            closeNekthuth()
+            output.close()
+            print >> sys.stderr, ("Failed to start up nekthuth.  Version was incorrect, vim plugin version is " +
+                                  vim.eval ("g:nekthuth_version") +
+                                  " but lisp package version " + ver)
+
       elif (self.started and cmdChar in plugins):
         plugin = plugins[cmdChar]
         if ('bell' in plugin and plugin['bell'] and 'waitingForResponse' in plugin and plugin['waitingForResponse']):
@@ -143,6 +155,8 @@ def getBufferNum():
   return vim.eval("bufwinnr('" + buffer.name + "')")
 
 def bufferSend(msg):
+  if buffer == None:
+    return
   vim.command ("set paste")
   if type('') == type(msg):
     for line in msg.strip("\n").split("\n"):
@@ -210,7 +224,7 @@ def openNekthuth():
     input.flush()
     input.write("(declaim (optimize (speed 0) (space 0) (debug 3)))\n")
     input.flush()
-    input.write('(if (ignore-errors (funcall (symbol-function (find-symbol "EXPECTED-VERSION" \'nekthuth.system)) ' + vim.eval ("g:nekthuth_version") + ')) (progn (format t "~%") (funcall (find-symbol "START-IN-VIM" \'nekthuth))) (progn (format t "ASTOP~%") (sb-ext:quit)))\n')
+    input.write('(if (ignore-errors (funcall (symbol-function (find-symbol "EXPECTED-VERSION" \'nekthuth.system)) ' + vim.eval ("g:nekthuth_version") + ')) (progn (format t "~%") (funcall (find-symbol "START-IN-VIM" \'nekthuth))) (progn (format t "~%ASTOP~%") (sb-ext:quit)))\n')
     input.flush()
 
     Sender().start()
@@ -251,6 +265,22 @@ def getCurrentPos():
 
 def gotoPos(pos):
   vim.command("normal! " + str(pos["top"] + 1) + "Gzt" + str(pos["line"] + 1) + "G" + str(pos["col"] + 1) + "|")
+
+def gotoNextNonCommentChar():
+  p = re.compile('\s')
+  while True:
+    prev_line = vim.eval("line('.')")
+    cur_char = vim.eval("getline('.')[col('.') - 1]")
+    if cur_char == '':
+      break
+    elif cur_char == ';':
+      vim.command("normal j")
+    elif cur_char == None or p.match(cur_char) != None:
+      vim.command("normal W")
+    else:
+      break
+    if cur_char == vim.eval("getline('.')[col('.') - 1]") and prev_line == vim.eval("line('.')"):
+      break
 
 def getColBackwards(pos, line):
   if pos == -1:
@@ -336,6 +366,18 @@ def macroExpand(count):
   for text in expanded.split("\n"):
     print text
   print >> sys.stderr, ""
+
+def openSourceLocation():
+  curword = vim.eval("expand(\"<cword>\")")
+  resp = eval(lispSendReceive('L', curword))
+  if type('') == type(resp):
+    print >> sys.stderr, resp
+  else:
+    (fileloc, charno) = resp
+    if vim.eval("expand(\"%:p\")") != fileloc:
+      vim.command ("split " + fileloc)
+    vim.command (str(charno + 1) + "go")
+    gotoNextNonCommentChar()
 
 ### Pure receiving plugins
 
