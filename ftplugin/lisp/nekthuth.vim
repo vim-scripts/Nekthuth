@@ -45,6 +45,12 @@ if exists("g:nekthuth_defined")
 endif
 let g:nekthuth_defined = 1
 
+if("" == $NEKTHUTH_HOME)
+  let g:nekthuth_home = $HOME . "/.nekthuth/"
+else
+  let g:nekthuth_home = $NEKTHUTH_HOME
+endif
+
 " This must match the version on the lisp side
 let g:nekthuth_version = "0.3"
 
@@ -512,3 +518,7 @@ def displayHelp():
     for line in help.strip("\n").split("\n"):
       vim.current.buffer.append(line)
 EOF
+
+for f in split(glob(g:nekthuth_home . "/vim/*.vim"), "\n")
+  exec 'source' . f
+endfor
