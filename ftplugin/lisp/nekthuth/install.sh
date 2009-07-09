@@ -1,18 +1,18 @@
 #!/bin/bash
 
-[ -z $NEKTHUTH_DIR ] && NEKTHUTH_DIR=$HOME/.nekthuth/
-[ -e $NEKTHUTH_DIR ] || mkdir $NEKTHUTH_DIR
-[ -e $NEKTHUTH_DIR/vim ] || mkdir $NEKTHUTH_DIR/vim
-[ -e $NEKTHUTH_DIR/lisp ] || mkdir $NEKTHUTH_DIR/lisp
+[ -z $NEKTHUTH_HOME ] && NEKTHUTH_HOME=$HOME/.nekthuth/
+[ -e $NEKTHUTH_HOME ] || mkdir $NEKTHUTH_HOME
+[ -e $NEKTHUTH_HOME/vim ] || mkdir $NEKTHUTH_HOME/vim
+[ -e $NEKTHUTH_HOME/lisp ] || mkdir $NEKTHUTH_HOME/lisp
 
 pluginname=${1/.nek/}
 
 lisp() {
-  cat > $NEKTHUTH_DIR/lisp/$pluginname.lisp
+  cat > $NEKTHUTH_HOME/lisp/$pluginname.lisp
 }
 
 vim() {
-  cat > $NEKTHUTH_DIR/vim/$pluginname.vim
+  cat > $NEKTHUTH_HOME/vim/$pluginname.vim
 }
 
 source $1
