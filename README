@@ -17,7 +17,7 @@ Features include:
 Current limitations include:
 
     * Requires SBCL with threads
-    * Requires vim > 7.0 with +python
+    * Requires vim > 7.0 with +python3
     * Requires asdf
 
 See http://nekthuth.com for more information

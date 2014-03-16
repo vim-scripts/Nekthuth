@@ -29,8 +29,8 @@ endif
 if v:version < 700
   echoerr "Could not initialize nekthuth, need version > 7"
   finish
-elseif !has("python") 
-  echoerr "Could not initialize nekthuth, not compiled with +python"
+elseif !has("python3") 
+  echoerr "Could not initialize nekthuth, not compiled with +python3"
   finish
 endif
 
@@ -46,7 +46,7 @@ else
 endif
 
 " This must match the version on the lisp side
-let g:nekthuth_version = "0.3"
+let g:nekthuth_version = "0.4"
 
 let g:plaintex_delimiters = 1
 
@@ -56,22 +56,25 @@ endif
 
 let &updatetime = g:nekthuth_updatetime
 
-autocmd BufDelete,BufUnload,BufWipeout Nekthuth.Interpreter python closeNekthuth()
-autocmd VimLeave * python closeNekthuth()
-au CursorHold,CursorHoldI * python cursorHoldDump()
-au CursorMoved,CursorMovedI * python dumpLispMovement()
-au Filetype lisp au BufEnter * python refreshSyntax()
-command! -nargs=0 -count=0 NekthuthSexp python sendSexp(getRelativeCount(<count>))
-command! -nargs=0 -count=0 NekthuthMacroExpand python macroExpand(getRelativeCount(<count>))
-command! -nargs=0 NekthuthTopSexp python sendSexp(100)
-command! -nargs=0 NekthuthClose python closeNekthuth()
-command! -nargs=0 NekthuthOpen python openNekthuth()
-command! -nargs=? NekthuthRemote python remoteNekthuth('<args>')
-command! -nargs=0 NekthuthInterrupt python sendInterrupt()
-command! -nargs=0 NekthuthSourceLocation python openSourceLocation()
+autocmd BufDelete,BufUnload,BufWipeout Nekthuth.Interpreter python3 closeNekthuth()
+autocmd VimLeave * python3 closeNekthuth()
+au CursorHold,CursorHoldI * python3 cursorHoldDump()
+au CursorMoved,CursorMovedI * python3 dumpLispMovement()
+au BufEnter *.lisp python3 refreshSyntax()
+au BufEnter Nekthuth.Interpreter python3 refreshSyntax()
+au BufUnload *.lisp python3 removeBufferFromSyntaxList()
+au BufUnload Nekthuth.Interpreter python3 removeBufferFromSyntaxList()
+command! -nargs=0 -count=0 NekthuthSexp python3 sendSexp(getRelativeCount(<count>))
+command! -nargs=0 -count=0 NekthuthMacroExpand python3 macroExpand(getRelativeCount(<count>))
+command! -nargs=0 NekthuthTopSexp python3 sendSexp(100)
+command! -nargs=0 NekthuthClose python3 closeNekthuth()
+command! -nargs=0 NekthuthOpen python3 openNekthuth()
+command! -nargs=? NekthuthRemote python3 remoteNekthuth('<args>')
+command! -nargs=0 NekthuthInterrupt python3 sendInterrupt()
+command! -nargs=0 NekthuthSourceLocation python3 openSourceLocation()
 
 function! NekthuthOmni(findstart, base)
-  execute "python omnifunc(" . a:findstart . ", \"" . a:base . "\")"
+  execute "python3 omnifunc(" . a:findstart . ", \"" . a:base . "\")"
   return l:retn
 endfunction
 
@@ -87,19 +90,21 @@ if !exists("g:lisp_debug")
   let g:lisp_debug = "N"
 endif
 
-python << EOF
+python3 << EOF
 import threading,time,vim,os,sys,locale,re,socket,subprocess
 
 interpBuffer = None
-interpWindow = None
-inspectBuffer = None
-secondaryWindow = None
+debugBuffer = None
+vertical = True
+
+consoleBuffers = []
 
 sock = None
 input = None
 output = None
 lock = threading.Lock()
 errorMsgs = []
+
 debugMode = (vim.eval("g:lisp_debug") == "Y")
 
 plugins = {}
@@ -113,8 +118,8 @@ class Sender(threading.Thread):
       cmdChar = output.read(1)
 
       if cmdChar == '': 
-        print "Lisp closed!"
-        print
+        print("Lisp closed!")
+        print()
         output.close()
       elif cmdChar == '\n':
         pass
@@ -124,23 +129,23 @@ class Sender(threading.Thread):
           self.started = True
         elif 'STOP\n' == msg:
           closeNekthuth()
-          print >> sys.stderr, "Failed to start up nekthuth.  Either the asdf package is not installed or the incorrect version (expected " + vim.eval("g:nekthuth_version") + ")"
+          print("Failed to start up nekthuth.  Either the asdf package is not installed or the incorrect version (expected " + vim.eval("g:nekthuth_version") + ")", file=sys.stderr)
         elif 'THREAD\n' == msg:
           closeNekthuth()
-          print >> sys.stderr, "Failed to start up nekthuth.  SBCL not compiled with thread options."
+          print("Failed to start up nekthuth.  SBCL not compiled with thread options.", file=sys.stderr)
         elif msg.startswith('VERSION'):
           ver = msg.replace('VERSION', '')
           if ver.rstrip() != vim.eval ("g:nekthuth_version"):
             closeNekthuth()
             output.close()
-            print >> sys.stderr, ("Failed to start up nekthuth.  Version was incorrect, vim plugin version is " +
+            print(("Failed to start up nekthuth.  Version was incorrect, vim plugin version is " +
                                   vim.eval ("g:nekthuth_version") +
-                                  " but lisp package version " + ver)
+                                  " but lisp package version " + ver), file=sys.stderr)
 
       elif (self.started and cmdChar in plugins):
         plugin = plugins[cmdChar]
         if ('bell' in plugin and plugin['bell'] and 'waitingForResponse' in plugin and plugin['waitingForResponse']):
-          print "Response from lisp waiting"
+          print("Response from lisp waiting")
 
         incomingSize = int(output.read(6))
         lock.acquire()
@@ -156,9 +161,9 @@ class Sender(threading.Thread):
 def lispSend(cmdChar, msg):
   global input
   openNekthuth()
-  input.write (cmdChar)
-  input.write ("%06d" % len(msg))
-  input.write (msg)
+  input.write(cmdChar)
+  input.write("%06d" % len(msg))
+  input.write(msg)
   input.flush()
 
 def getBufferNum():
@@ -169,7 +174,6 @@ def bufferSend(msg):
   global interpBuffer
   if interpBuffer == None:
     return
-  vim.command ("set paste")
   if type('') == type(msg):
     for line in msg.strip("\n").split("\n"):
       interpBuffer.append(line)
@@ -181,10 +185,9 @@ def bufferSend(msg):
   curwinnum = vim.eval("winnr()")
   bufwinnum = getBufferNum()
   vim.command (bufwinnum + "wincmd w")
-  interpWindow.cursor = (len(interpBuffer), 0);
+  vim.current.window.cursor = (len(interpBuffer), 0);
   vim.command ("redraw")
   vim.command (curwinnum + "wincmd w")
-  vim.command ("set nopaste")
 
 def lispSendReceive(cmdChar, msg):
   global plugins,lock
@@ -201,7 +204,7 @@ def lispSendReceive(cmdChar, msg):
     time.sleep(0.2)
     waits += 1
     if waits > 50:
-      raise Exception, 'Waited more than 10 seconds, and no response, something is wrong'
+      raise Exception('Waited more than 10 seconds, and no response, something is wrong')
 
   lock.acquire()
   retn = plugins[cmdChar]['msg'][0]
@@ -216,24 +219,44 @@ def registerReceiver(cmdChar, callback, bell):
     plugins[cmdChar] = {'callback':callback, 'bell':bell, 'msg':[]}
     lock.release()
 
+def openNekthuthWindow():
+  global interpBuffer,vertical
+
+  if interpBuffer == None or getBufferNum() == "-1":
+    bufNum = -1
+
+    if interpBuffer == None:
+      vim.command("badd Nekthuth.Interpreter")
+      bufNum = int(vim.eval("bufnr(\"Nekthuth.Interpreter\")"))
+      interpBuffer = vim.buffers[bufNum]
+      vim.command("call setbufvar(\"Nekthuth.Interpreter\", \"&buftype\", \"nofile\")")
+      vim.command("call setbufvar(\"Nekthuth.Interpreter\", \"&swapfile\", 0)")
+      vim.command("call setbufvar(\"Nekthuth.Interpreter\", \"&filetype\", \"lisp\")")
+      vim.command("call setbufvar(\"Nekthuth.Interpreter\", \"&hidden\", 1)")
+    else:
+      bufNum = interpBuffer.number
+
+    if vim.current.window.width > 160:
+      vertical = False
+      vim.command("vsplit +b\\ " + str(bufNum))
+    else:
+      vertical = True
+      vim.command("split +b\\ " + str(bufNum))
+    vim.command ("wincmd w")
+
 def openNekthuth():
-  global interpBuffer,interpWindow,input,output
+  global input,output
   if interpBuffer == None:
     if not os.path.exists(vim.eval("g:nekthuth_sbcl")):
-      print >> sys.stderr, "Could not open the nekthuth: path " + vim.eval("g:nekthuth_sbcl") +\
-        " does not exists"
+      print("Could not open the nekthuth: path " + vim.eval("g:nekthuth_sbcl") +\
+        " does not exists", file=sys.stderr)
       return
-    print "Starting lisp interpreter"
-    print
-    if vim.current.window.width > 120:
-      vim.command ("vsplit +e Nekthuth.Interpreter")
-    else:
-      vim.command ("split +e Nekthuth.Interpreter")
-    vim.command ("setlocal buftype=nofile noswapfile filetype=lisp nonumber")
-    interpBuffer = vim.current.buffer
-    interpWindow = vim.current.window
-    subproc = subprocess.Popen([vim.eval("g:nekthuth_sbcl"), "--noinform"], bufsize=1, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, close_fds=True)
+    print("Starting lisp interpreter")
+    print()
+    openNekthuthWindow()
+    subproc = subprocess.Popen([vim.eval("g:nekthuth_sbcl"), "--noinform"], bufsize=1, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, close_fds=True, universal_newlines=True)
     (input, output) = (subproc.stdin, subproc.stdout)
+
     input.write('#-sb-thread (progn (format t "~%ATHREAD~%") (sb-ext:quit))\n')
     input.flush()
     input.write("(ignore-errors (asdf:oos 'asdf:load-op 'nekthuth))\n")
@@ -244,35 +267,31 @@ def openNekthuth():
     input.flush()
 
     Sender().start()
-    vim.command ("wincmd w")
+  else:
+    openNekthuthWindow()
 
 def remoteNekthuth(port):
   if port == '':
     port = vim.eval("g:nekthuth_remote_port")
 
-  global interpBuffer,interpWindow,input,output,sock
+  global input,output,sock
   if interpBuffer == None:
-    print "Starting remote connection to lisp"
-    print
+    print("Starting remote connection to lisp")
+    print()
     try:
       sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
       sock.connect(('localhost', int(port)))
     except:
-      print >> sys.stderr, "Could not connect to lisp!"
+      print("Could not connect to lisp!", file=sys.stderr)
       return
     input = sock.makefile("w")
     output = sock.makefile("r")
 
-    if vim.current.window.width > 120:
-      vim.command ("vsplit +e Nekthuth.Interpreter")
-    else:
-      vim.command ("split +e Nekthuth.Interpreter")
+    openNekthuthWindow()
 
-    vim.command ("setlocal buftype=nofile noswapfile filetype=lisp nonumber")
-    interpBuffer = vim.current.buffer
-    interpWindow = vim.current.window
     Sender().start()
-    vim.command ("wincmd w")
+  else:
+    openNekthuthWindow()
 
 def getCurrentPos():
   col = int(vim.eval("virtcol('.')")) - 1
@@ -353,8 +372,8 @@ def getSexp(count):
 def closeNekthuth():
   global input,interpBuffer,sock
   if interpBuffer != None:
-    print "Closing Lisp"
-    print
+    print("Closing Lisp")
+    print()
     interpBuffer = None
     input.write ("Q000000")
     input.flush()
@@ -388,19 +407,95 @@ def cursorHoldDump():
     plugin['waitingForResponse'] = True
   dumpLisp()
 
+### Functions related to the console window
+def getConsoleWindowBuffer():
+  global consoleBuffers
+
+  for buf in consoleBuffers:
+    if buf != None and vim.eval("bufwinnr('" + buf.name + "')") != "-1":
+      return buf
+
+  return None
+
+def getConsoleWindowNum():
+  buf = getConsoleWindowBuffer()
+  if buf != None:
+    return vim.eval("bufwinnr('" + buf.name + "')")
+  return None
+
+def setConsoleBuffer(buf, display):
+  global consoleBuffers
+  if not buf in consoleBuffers:
+    consoleBuffers.append(buf)
+  openNekthuth()
+  if not isConsoleWindowLocked():
+    prevbuf = getConsoleWindowBuffer()
+    if buf != prevbuf:
+      winNum = getConsoleWindowNum()
+      curwinnum = vim.eval("winnr()")
+      openNekthuthWindow()
+      bufwinnum = getBufferNum()
+      vim.command (bufwinnum + "wincmd w")
+
+      if winNum == None:
+        if vertical:
+          vim.command("vsplit +b\\ " + str(buf.number))
+        else:
+          vim.command("split +b\\ " + str(buf.number))
+      else:
+        vim.command (winNum + "wincmd w")
+        vim.command ("b " + str(buf.number))
+
+      buf.vars["statusline"] = display
+      vim.command (curwinnum + "wincmd w")
+    return prevbuf
+  else:
+    print("Console window currently locked!", file=sys.stderr)
+
+scratchnum = 0
+def makeScratchLispBuffer(text, display):
+  global scratchnum
+  scratchname = "NekthuthScratch." + str(scratchnum)
+  vim.command("badd " + scratchname)
+  scratchnum += 1
+  bufNum = int(vim.eval("bufnr(\"" + scratchname + "\")"))
+  vim.command("call setbufvar(\"" + scratchname + "\", \"&buftype\", \"nofile\")")
+  vim.command("call setbufvar(\"" + scratchname + "\", \"&swapfile\", 0)")
+  vim.command("call setbufvar(\"" + scratchname + "\", \"&bufhidden\", \"delete\")")
+  vim.command("call setbufvar(\"" + scratchname + "\", \"&buflisted\", 0)")
+  vim.command("call setbufvar(\"" + scratchname + "\", \"&filetype\", \"lisp\")")
+  buf = vim.buffers[bufNum]
+  if type('') == type(text):
+    for line in text.strip("\n").split("\n"):
+      buf.append(line)
+  elif type([]) == type(text):
+    for lines in text:
+      for line in lines.strip("\n").split("\n"):
+        buf.append(line)
+  setConsoleBuffer(buf, display)
+  bufwinnum = vim.eval("bufwinnr('" + buf.name + "')")
+  vim.command (bufwinnum + "wincmd w")
+  vim.command("set statusline=" + display)
+
+def isConsoleWindowOpen():
+  return (getConsoleWindowBuffer() != None)
+
+# For debug and maybe other modes requiring immediate feedback
+def isConsoleWindowLocked():
+  global debugBuffer
+
+  return (debugBuffer != None and getConsoleWindowBuffer() == debugBuffer)
+
 ### Synchronous plugins
 def macroExpand(count):
-  sexp = getSexp(count)
-  expanded = lispSendReceive('M', sexp)
-  for text in expanded.split("\n"):
-    print text
-  print >> sys.stderr, ""
+  expr = getSexp(count)
+  makeScratchLispBuffer([expr, "", ";;;;;;;; EXPANDED TO ;;;;;;;;", "", lispSendReceive('M', expr)], "MACRO-EXPAND")
 
 def openSourceLocation():
   curword = vim.eval("expand(\"<cword>\")")
   resp = eval(lispSendReceive('L', curword))
   if type('') == type(resp):
-    print >> sys.stderr, resp
+    print(resp, file=sys.stderr)
   else:
     (fileloc, charno) = resp
     if vim.eval("expand(\"%:p\")") != fileloc:
@@ -413,37 +508,84 @@ def openSourceLocation():
 ### If a new buffer happen, we need to make sure to re-import all the syntax additions
 ### Therefore, we have to keep a master list for all syntax additions that have ever been done
 allSyntaxAdditions = []
+bufferSyntaxList = {}
 def addSyntax(msgs):
-  global allSyntaxAdditions
-
+  global allSyntaxAdditions, bufferSyntaxList
   if msgs != []:
+    for key in bufferSyntaxList.keys():
+      for msg in msgs:
+        allSyntaxAdditions.extend(eval(msg))
+        bufferSyntaxList[key].extend(eval(msg))
     for msg in msgs:
       allSyntaxAdditions.extend(eval(msg))
     refreshSyntax()
 
+def refreshSyntax():
+  global bufferSyntaxList
+  filename = vim.current.buffer.name
+  if filename in bufferSyntaxList:
+    for syntax in bufferSyntaxList[filename]:
+      vim.command("syn keyword lispLocalFunc " + syntax)
+    bufferSyntaxList[filename] = []
+  else:
+    bufferSyntaxList[filename] = []
+    vim.command("syn cluster lispAtomCluster add=lispLocalFunc")
+    vim.command("syn cluster lispBaseListCluster add=lispLocalFunc")
+    vim.command("hi def link lispLocalFunc Function")
+    for syntax in allSyntaxAdditions:
+      vim.command("syn keyword lispLocalFunc " + syntax)
+
+def removeBufferFromSyntaxList():
+  filename = vim.buffers[int(vim.eval("expand(\"<abuf>\")"))].name
+  global bufferSyntaxList
+  if filename in bufferSyntaxList:
+    del bufferSyntaxList[filename]
+
 registerReceiver('S', addSyntax, False)
 
-def refreshSyntax():
-  global allSyntaxAdditions
-  vim.command("syn cluster lispAtomCluster add=lispLocalFunc")
-  vim.command("syn cluster lispBaseListCluster add=lispLocalFunc")
-  vim.command("hi def link lispLocalFunc Function")
+def createDebugBuffer():
+  global debugBuffer
 
-  for syntax in allSyntaxAdditions:
-    #print >> sys.stderr, syntax
-    vim.command("syn keyword lispLocalFunc " + syntax)
+  if debugBuffer == None:
+    vim.command("badd Nekthuth.Debugger")
+    bufNum = int(vim.eval("bufnr(\"Nekthuth.Debugger\")"))
+    debugBuffer = vim.buffers[bufNum]
+    vim.command("call setbufvar(\"Nekthuth.Debugger\", \"&buftype\", \"nofile\")")
+    vim.command("call setbufvar(\"Nekthuth.Debugger\", \"&swapfile\", 0)")
+    vim.command("call setbufvar(\"Nekthuth.Debugger\", \"&hidden\", 1)")
+
+def sendDebugResponse(restart, curwinnum, prevBufNum):
+  lispSend('D', restart)
+  vim.command ("close") if prevBufNum == -1 else vim.command("b " + str(prevBufNum))
+  vim.command (curwinnum + "wincmd w")
 
 def debugger(msgs):
+  global debugBuffer
+  createDebugBuffer()
+
+  prevBuf = setConsoleBuffer(debugBuffer, "Nekthuth Debugger")
+  prevBufNum = prevBuf.number if prevBuf != None else -1
+
   debugResponse = 0;
   debugText = msgs[0].split("\n")
+
   numRestarts = int(debugText[0])
-  while ((debugResponse < 1 or debugResponse > numRestarts) and debugResponse != "error"):
-    try:
-      vim.command ("redraw!")
-      debugResponse = int(vim.eval ("inputlist(" + str(debugText[1:]).replace("\\'", "''") + ")"))
-    except:
-      debugResponse = "error"
-  lispSend('D', str(debugResponse))
+
+  vim.command ("set paste")
+
+  curwinnum = vim.eval("winnr()")
+  bufwinnum = vim.eval("bufwinnr('" + debugBuffer.name + "')")
+  vim.command (bufwinnum + "wincmd w")
+  vim.command ("%d")
+  vim.command ("mapc <buffer>")
+
+  for line in debugText[1:]:
+    debugBuffer.append(line)
+
+  vim.command ("redraw!")
+  for i in range(1, numRestarts + 1):
+    vim.command("map <buffer> <F" + str(i) + "> :python3 sendDebugResponse('" + str(i) + "', '" + curwinnum + "', " + str(prevBufNum) + ")<CR>")
+
 registerReceiver('D', debugger, True)
 
 def errorFromLisp(msgs):
@@ -471,7 +613,7 @@ def sendSexp(count):
 def replPrinter(msgs):
   msgs.append('')
   bufferSend(msgs)
-  print
+  print()
 registerReceiver('R', replPrinter, True)
 
 def omnifunc(findstart, base):
@@ -488,58 +630,53 @@ def omnifunc(findstart, base):
 EOF
 
 """ Help is a bit more complicated, and so get its own section
-let s:tagsfile = findfile('ftplugin/lisp/nekthuth/hyperspecTags', escape(&runtimepath, ' '))
+let s:hyperspecTagsfile = findfile('ftplugin/lisp/nekthuth/hyperspecTags', escape(&runtimepath, ' '))
+command! -complete=custom,HyperSpecTags -nargs=1 Clhelp python3 showHelp('<args>')
 
-au BufRead HyperSpec.Help set updatetime=50
-exe "set tags=" . s:tagsfile
-exe "au BufNew HyperSpec.Help set tags=" . s:tagsfile
-au CursorHold HyperSpec.Help call BuildHelp()
-
-command! -complete=tag -nargs=1 Clhelp call OpenHelp("<args>")
-
-let g:oldtag = ""
-let g:tagname = ""
-
-function! GetHelp(withwhat)
-  let g:tagname = a:withwhat
-  set updatetime=50
+function! HyperSpecTags(ArgLead, CmdLine, CursorPos)
+  return g:hyperspecTags
 endfunction
 
-function! BuildHelp()
-  if (g:tagname != g:oldtag)
-    setlocal buftype=nofile
-    setlocal ft=help
-    setlocal lbr
-    silent 1,$d
-    python displayHelp()
-    set updatetime=500
-    let g:oldtag = g:tagname
-  endif
-endfunction
-
-function! OpenHelp(tagname)
-  if ! empty(taglist(a:tagname))
-    split ~/.vim/plugin/nekthuth/HyperSpec.Help
-    exe "tag " . a:tagname
-  else
-    echoerr "Could not find help for " . a:tagname
-  endif
-endfunction
-
-python << EOF
+python3 << EOF
 import vim,sys,re
 
-def displayHelp():
-  str = '"' + vim.eval("g:tagname") + '"'
-  help = lispSendReceive('H', str)
+hyperspecTags = dict([line.rstrip().split("\t") for line in open(vim.eval("s:hyperspecTagsfile"))])
+helpBuffer = None
 
-  if re.compile("^Error:").match(help):
-    vim.command(":close")
-    vim.command(":redraw")
-    print >> sys.stderr, help
+def createHelpBuffer():
+  global helpBuffer,hyperspecTags
+
+  if helpBuffer == None:
+    vim.command("badd HyperSpec.Help")
+    bufNum = int(vim.eval("bufnr(\"HyperSpec.Help\")"))
+    helpBuffer = vim.buffers[bufNum]
+    vim.command("call setbufvar(\"HyperSpec.Help\", \"&swapfile\", 0)")
+    vim.command("call setbufvar(\"HyperSpec.Help\", \"&buftype\", \"nofile\")")
+    vim.command("call setbufvar(\"HyperSpec.Help\", \"&lbr\", 1)")
+    vim.command("call setbufvar(\"HyperSpec.Help\", \"&hidden\", 1)")
+
+def showHelp(tagname):
+  global hyperspecTags,helpBuffer
+  if tagname in hyperspecTags:
+    openNekthuth()
+    createHelpBuffer()
+    setConsoleBuffer(helpBuffer, "Nekthuth HyperSpec")
+    bufwinnum = vim.eval("bufwinnr('" + helpBuffer.name + "')")
+    vim.command (bufwinnum + "wincmd w")
+    vim.command ("%d")
+    vim.command("call setbufvar(\"HyperSpec.Help\", \"&ft\", \"help\")")
+
+    help = lispSendReceive('H', '"' + hyperspecTags[tagname] + '"')
+ 
+    if re.compile("^Error:").match(help):
+      print(help, file=sys.stderr)
+    else:
+      for line in help.strip("\n").split("\n"):
+        vim.current.buffer.append(line)
   else:
-    for line in help.strip("\n").split("\n"):
-      vim.current.buffer.append(line)
+    print("Could not find help for: " + tagname, file=sys.stderr)
+
+vim.vars["hyperspecTags"] = "\n".join(sorted(hyperspecTags.keys()))
 EOF
 
 for f in split(glob(g:nekthuth_home . "/vim/*.vim"), "\n")
